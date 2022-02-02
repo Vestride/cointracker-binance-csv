@@ -5,7 +5,13 @@ import * as csv from 'csv';
 const transactionsPath = './input.csv';
 
 function toCointrackerDate(date) {
-  return date.toISOString().replace('T', ' ').replace('Z', '').replaceAll('-', '/').slice(0, -4);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+  const seconds = `${date.getSeconds()}`.padStart(2, '0');
+  return `${month}/${day}/${year} ${hours}:${minutes}:${seconds}`;
 }
 
 async function main() {
@@ -25,11 +31,22 @@ async function main() {
   for (let i = 0; i < records.length; i++) {
     const [userId, utcTime, account, operation, coin, change, remark] = records[i];
     const date = new Date(utcTime);
-    const milliseconds = date.getTime();
-    let txn = txns.get(milliseconds) ?? {
-      Date: toCointrackerDate(date),
-      Remark: remark,
-    };
+    const seconds = Math.round(date.getTime() / 1000);
+
+    // Transactions don't always have the same exact second timestamp, so look for +/- 1 second.
+    let txn;
+    if (txns.has(seconds)) {
+      txn = txns.get(seconds);
+    } else if (txns.has(seconds - 1)) {
+      txn = txns.get(seconds - 1);
+    } else if (txns.has(seconds + 1)) {
+      txn = txns.get(seconds + 1);
+    } else {
+      txn = {
+        Date: toCointrackerDate(date),
+        Remark: remark,
+      };
+    }
 
     const debugString = `Received ${change} instead for ${coin} transaction on ${utcTime}.`;
 
@@ -94,7 +111,6 @@ async function main() {
         ...txn,
         'Received Quantity': Math.abs(change),
         'Received Currency': coin,
-        Tag: 'deposit',
       };
     } else if (operation === 'Withdraw') {
       // Withdrawal.
@@ -108,7 +124,7 @@ async function main() {
       console.log(`ignored operation ${operation}`);
     }
 
-    txns.set(milliseconds, txn);
+    txns.set(seconds, txn);
   }
 
   console.log(`Transformed to ${txns.size} records`);
